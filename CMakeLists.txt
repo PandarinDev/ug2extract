@@ -10,3 +10,9 @@ file(GLOB_RECURSE UG2E_HEADER_FILES include/*.h)
 
 add_executable(ug2e ${UG2E_SRC_FILES} ${UG2E_HEADER_FILES})
 target_include_directories(ug2e PRIVATE include)
+
+if(MSVC)
+    target_compile_options(ug2e PRIVATE /W4 /WX)
+else()
+    target_compile_options(ug2e PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
