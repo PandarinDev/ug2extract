@@ -26,26 +26,21 @@ namespace ug2e {
         return parse(data, 0);
     }
 
-    std::optional<std::size_t> Chunk::find_first_normal_offset() const {
-        for (std::size_t i = 0; i < data.size() - 12; i += 4) {
-            if (is_likely_normal_vector(i)) {
+    std::optional<std::size_t> Chunk::find_first_non_padding_byte_offset() const {
+        // Data in mesh chunks in the beginning is padded with 0x11
+        static constexpr unsigned char padding_byte = 0x11;
+        for (std::size_t i = 0; i < data.size(); ++i) {
+            if (data[i] != padding_byte) {
                 return i;
             }
         }
         return std::nullopt;
     }
 
-    std::vector<std::size_t> Chunk::find_normal_offsets() const {
-        std::vector<std::size_t> offsets;
-        if (data.size() < 12) {
-            return offsets;
-        }
-        for (std::size_t i = 0; i < data.size() - 12; i += 4) {
-            if (is_likely_normal_vector(i)) {
-                offsets.emplace_back(i);
-            }
-        }
-        return offsets;
+    std::string Chunk::get_name_chunk_name_value() const {
+        // The name value seems to be always 164 bytes into the name chunk data
+        static constexpr std::size_t name_value_offset = 164;
+        return std::string(reinterpret_cast<const char*>(data.data() + name_value_offset));
     }
 
     std::unique_ptr<Chunk> Chunk::parse(const std::vector<unsigned char>& data, std::size_t offset) {
@@ -75,14 +70,6 @@ namespace ug2e {
     
     bool Chunk::is_parent(std::uint32_t type) {
         return (type & 0x80000000) == 0x80000000;
-    }
-
-    bool Chunk::is_likely_normal_vector(std::size_t from) const {
-        const auto f1 = *reinterpret_cast<const float*>(&data.at(from));
-        const auto f2 = *reinterpret_cast<const float*>(&data.at(from + 4));
-        const auto f3 = *reinterpret_cast<const float*>(&data.at(from + 8));
-        const auto length = std::sqrtf(f1*f1 + f2*f2 + f3*f3);
-        return length >= 0.9999f && length <= 1.0001f;
     }
 
 }

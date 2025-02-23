@@ -29,12 +29,17 @@ int main(int argc, char* argv[]) {
     }
 
     const auto root = Chunk::parse_root(bytes);
+    static constexpr std::uint32_t name_chunk_type = 0x134011;
     static constexpr std::uint32_t mesh_chunk_type = 0x134B01;
     static constexpr std::uint32_t index_chunk_type = 0x134B03;
+    const auto name_chunks = ChunkUtils::get_all_with_type(*root, name_chunk_type);
     const auto mesh_chunks = ChunkUtils::get_all_with_type(*root, mesh_chunk_type);
     const auto index_chunks = ChunkUtils::get_all_with_type(*root, index_chunk_type);
+    std::cout << "Found " << name_chunks.size() << " name chunks." << std::endl;
     std::cout << "Found " << mesh_chunks.size() << " mesh chunks." << std::endl;
     std::cout << "Found " << index_chunks.size() << " index chunks." << std::endl;
+
+    // TODO: Not 100% convinced yet that the name parsing is correct. It seems to be, but double check.
 
     // Create the out folder if it does not exist yet
     try {
@@ -54,17 +59,13 @@ int main(int argc, char* argv[]) {
         std::vector<Vec3> vertices;
         std::vector<Face> faces;
 
-        // Vertex data in different chunks seem to start at different places so we
-        // try to seek to the first normal data in every chunk to find the starting
-        // position. TODO: I'm sure there is a better way to figure this out.
-        const auto first_normal_offset = mesh_chunk->find_first_normal_offset();
-        if (!first_normal_offset) {
-            std::cout << "Mesh chunk at " << mesh_chunk->offset << " does not seem to contain any normals, skipping it." << std::endl;
+        // Mesh chunks start with padding bytes so we need to seek to the first vertex
+        const auto first_vertex_offset = mesh_chunk->find_first_non_padding_byte_offset();
+        if (!first_vertex_offset) {
+            std::cout << "Mesh chunk at " << mesh_chunk->offset << " does not seem to contain vertex data, skipping it." << std::endl;
             continue;
         }
-        // The vertex layout starts with position data that is 12 bytes before the first normals
-        const auto starting_idx = first_normal_offset.value() - 12;
-        for (std::size_t i = starting_idx; i <= data.size() - stride; i += stride) {
+        for (std::size_t i = *first_vertex_offset; i < data.size(); i += stride) {
             float vertex_x = *reinterpret_cast<const float*>(&data.at(i));
             float vertex_y = *reinterpret_cast<const float*>(&data.at(i + 4));
             float vertex_z = *reinterpret_cast<const float*>(&data.at(i + 8));
@@ -82,8 +83,14 @@ int main(int argc, char* argv[]) {
 
         // Face data is stored in the index chunks in 16 bit integers, we read out 3 at a time to construct a face
         const auto& index_chunk = *index_chunks[mesh_chunk_idx];
-        // TODO: That -6 should not be necessary. It seems like number of 16 bit ints are not divisible by 3 which is weird?!
-        for (std::size_t i = 0; i < index_chunk.data.size() - 6; i += 6) {
+        const auto first_index_offset = index_chunk.find_first_non_padding_byte_offset();
+        if (!first_index_offset) {
+            std::cout << "Index chunk at " << index_chunk.offset << " does not seem to contain index data, skipping it." << std::endl;
+            continue;
+        }
+        // TODO: That -6 should not be necessary but for some index chunks (data_size - padding_size) is not divisible by 3
+        // Figure out why that is. They do not seem to contain quads instead of triangles, it seems to be 0 bytes at the end.
+        for (std::size_t i = *first_index_offset; i <= index_chunk.data.size() - 6; i += 6) {
             // Adding 1 to all of these due to OBJ indexing from 1
             std::uint16_t first_index = *reinterpret_cast<const std::uint16_t*>(&index_chunk.data.at(i)) + 1;
             std::uint16_t second_index = *reinterpret_cast<const std::uint16_t*>(&index_chunk.data.at(i + 2)) + 1;
@@ -95,7 +102,9 @@ int main(int argc, char* argv[]) {
             );
         }
 
-        std::filesystem::path file_path("out/" + std::to_string(mesh_chunk_idx++) + ".obj");
+        const auto& name_chunk = *name_chunks[mesh_chunk_idx];
+        const auto name = name_chunk.get_name_chunk_name_value();
+        std::filesystem::path file_path("out/" + name + ".obj");
         std::cout << "Writing '" << file_path.string() << "'..." << std::endl;
         std::ofstream file_handle(file_path);
         if (!file_handle) {
@@ -116,6 +125,7 @@ int main(int argc, char* argv[]) {
                 face.vertex_indinces[1] << "/" << face.texture_indices[1] << "/" << face.normal_indices[1] << " " <<
                 face.vertex_indinces[2] << "/" << face.texture_indices[2] << "/" << face.normal_indices[2] << std::endl;
         }
+        ++mesh_chunk_idx;
     }
     return 0;
 }

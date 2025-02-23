@@ -25,8 +25,8 @@ namespace ug2e {
 
         static std::unique_ptr<Chunk> parse_root(const std::vector<unsigned char>& data);
 
-        std::optional<std::size_t> find_first_normal_offset() const;
-        std::vector<std::size_t> find_normal_offsets() const;
+        std::optional<std::size_t> find_first_non_padding_byte_offset() const;
+        std::string get_name_chunk_name_value() const;
 
         friend std::ostream& operator<<(std::ostream& os, const Chunk& chunk);
 
@@ -34,8 +34,6 @@ namespace ug2e {
 
         static std::unique_ptr<Chunk> parse(const std::vector<unsigned char>& data, std::size_t offset);
         static bool is_parent(std::uint32_t type);
-        
-        bool is_likely_normal_vector(std::size_t from) const;
 
     };
 
